@@ -153,6 +153,7 @@ pip install -r requirements.txt
 
 ```bash
 cd backend
+export ALLOW_NET_DOWNLOAD=1
 uvicorn main:app --reload
 ```
 
