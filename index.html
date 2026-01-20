@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Offline AI Hackathon System</title>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+  <div class="card">
+    <h1>TEAM EchoMind</h1>
+    <small>Explainable AI</small>
+  </div>
+
+  <div class="card">
+    <form action="/run" method="post" enctype="multipart/form-data">
+      <div class="grid">
+        <div>
+          <label>Upload Video File (mp4/mkv/avi/mov/webm)</label>
+          <input type="file" name="video_file" accept="video/*"/>
+        </div>
+        <div>
+          <label>OR Video URL (Offline cache mode)</label>
+          <input type="text" name="video_url" placeholder="https://youtube.com/... (offline cache lookup)"/>
+          <small class="warn">
+            Offline rule: URL will NOT download. It only works if the video already exists in backend/storage/url_cache/
+          </small>
+        </div>
+      </div>
+
+      <label>Optional Text Hint (to help choose language: Bangla vs English)</label>
+      <input type="text" name="text_hint" placeholder="Example: বাংলা / English"/>
+
+      <button type="submit">Run Analysis</button>
+    </form>
+  </div>
+
+  <div class="card">
+    <h3>Offline URL Cache Instructions</h3>
+    <ol>
+      <li>Paste your URL in the box.</li>
+      <li>If system says “not found in cache”, it will show a URL key.</li>
+      <li>Put your downloaded video into <b>backend/storage/url_cache/</b></li>
+      <li>Rename it to <b>&lt;URL_KEY&gt;.mp4</b> (or .mkv/.avi)</li>
+      <li>Run again. It will process fully offline.</li>
+    </ol>
+  </div>
+</body>
+</html>

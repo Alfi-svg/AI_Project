@@ -1,0 +1,248 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <title>Result</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+
+<body>
+  <div class="card">
+    <a href="/">← Back</a>
+    <h1>Result</h1>
+  </div>
+
+  {% if error %}
+  <div class="card">
+    <div class="warn">ERROR</div>
+    <pre>{{ error }}</pre>
+  </div>
+  {% else %}
+  <div class="card">
+    <h2>Phase-1: Transcription + Sentiment</h2>
+    <p><b>Language:</b> {{ result.phase1.language }}</p>
+    <p><b>Sentiment:</b> {{ result.phase1.sentiment }} (score={{ "%.2f"|format(result.phase1.sentiment_score) }})</p>
+    <h3>Transcript</h3>
+    <pre>{{ result.phase1.transcript }}</pre>
+    <h3>Explainable AI Output</h3>
+    <pre>{{ result.phase1.explanation }}</pre>
+  </div>
+
+  <div class="card">
+    <h2>Phase-2: Motion & Visual Feature Analysis</h2>
+    <p><b>Timeline CSV:</b> {{ result.phase2.timeline_csv_path }}</p>
+    <p><b>Timeline JSON:</b> {{ result.phase2.timeline_json_path }}</p>
+    <h3>Motion Graph (Timeline)</h3>
+    <canvas id="motionChart" width="900" height="240"
+      style="width:100%;max-width:1000px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.20)"></canvas>
+    <p style="color:var(--muted);margin-top:8px">Lines show normalized (0–1) feature values over time (sampled FPS).</p>
+    <h3>Stats Graph (Averages)</h3>
+    <canvas id="avgChart" width="900" height="220"
+      style="width:100%;max-width:1000px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.20)"></canvas>
+
+    <h3 style="margin-top:16px">Stats Graph (Variability)</h3>
+    <canvas id="varChart" width="900" height="220"
+      style="width:100%;max-width:1000px;border-radius:14px;border:1px solid rgba(255,255,255,0.12);background:rgba(0,0,0,0.20)"></canvas>
+
+    <h3>Statistical Summary</h3>
+    <pre>{{ result.phase2.stats | tojson(indent=2) }}</pre>
+
+    <h3>Feature Explanation + Limitations</h3>
+    <pre>{{ result.phase2.explanation | tojson(indent=2) }}</pre>
+  </div>
+  <script id="timeline-data" type="application/json">
+{{ (result.phase2.timeline_data | tojson) if (result and result.phase2 and result.phase2.timeline_data) else "[]" }}
+</script>
+<script id="phase2-stats" type="application/json">
+{{ (result.phase2.stats | tojson) if (result and result.phase2 and result.phase2.stats) else "{}" }}
+</script>
+
+  {% endif %}
+
+  <script>
+    function clamp01(x) {
+      x = Number(x);
+      if (Number.isNaN(x)) return 0;
+      return Math.max(0, Math.min(1, x));
+    }
+
+    function drawLine(ctx, xs, ys) {
+      ctx.beginPath();
+      for (let i = 0; i < xs.length; i++) {
+        if (i === 0) ctx.moveTo(xs[i], ys[i]);
+        else ctx.lineTo(xs[i], ys[i]);
+      }
+      ctx.stroke();
+    }
+
+    (function () {
+      const c = document.getElementById("motionChart");
+      if (!c) return;
+
+      // Read JSON safely from script tag (no Jinja inside JS)
+      let timeline = [];
+      try {
+        const el = document.getElementById("timeline-data");
+        timeline = el ? JSON.parse(el.textContent || "[]") : [];
+      } catch (e) {
+        timeline = [];
+      }
+
+      const ctx = c.getContext("2d");
+      const W = c.width, H = c.height;
+
+      // background grid
+      ctx.clearRect(0, 0, W, H);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(255,255,255,0.10)";
+      for (let i = 0; i <= 4; i++) {
+        const y = 20 + (H - 40) * (i / 4);
+        ctx.beginPath(); ctx.moveTo(40, y); ctx.lineTo(W - 12, y); ctx.stroke();
+      }
+
+      if (!Array.isArray(timeline) || timeline.length < 2) {
+        ctx.fillStyle = "rgba(255,255,255,0.75)";
+        ctx.font = "14px system-ui";
+        ctx.fillText("No timeline data available for graph.", 44, 44);
+        return;
+      }
+
+      const n = timeline.length;
+      const x0 = 40, x1 = W - 12, y0 = 20, y1 = H - 20;
+      const plotW = x1 - x0, plotH = y1 - y0;
+
+      const xs = Array.from({ length: n }, (_, i) => x0 + plotW * (i / (n - 1)));
+
+      const series = [
+        { key: "posture_openness", label: "Openness", color: "rgba(124,92,255,0.95)" },
+        { key: "hand_gesture_activity", label: "Gestures", color: "rgba(34,197,94,0.95)" },
+        { key: "eye_contact_approx", label: "Eye", color: "rgba(251,191,36,0.95)" },
+        { key: "movement_pacing", label: "Pacing", color: "rgba(239,68,68,0.95)" },
+      ];
+
+      // axes labels
+      ctx.fillStyle = "rgba(255,255,255,0.65)";
+      ctx.font = "12px system-ui";
+      ctx.fillText("1.0", 8, 26);
+      ctx.fillText("0.0", 8, H - 20);
+
+      // plot lines
+      ctx.lineWidth = 2;
+      for (const s of series) {
+        const ys = timeline.map(r => {
+          const v = clamp01(r && r[s.key]);
+          return y1 - plotH * v;
+        });
+        ctx.strokeStyle = s.color;
+        drawLine(ctx, xs, ys);
+      }
+
+      // legend
+      let lx = 44, ly = 18;
+      ctx.font = "12px system-ui";
+      for (const s of series) {
+        ctx.fillStyle = s.color;
+        ctx.fillRect(lx, ly - 8, 10, 10);
+        ctx.fillStyle = "rgba(255,255,255,0.75)";
+        ctx.fillText(s.label, lx + 16, ly);
+        lx += 90;
+      }
+    })();
+  </script>
+<script>
+  function getStats(){
+    try{
+      const el = document.getElementById("phase2-stats");
+      return el ? JSON.parse(el.textContent || "{}") : {};
+    }catch(e){
+      return {};
+    }
+  }
+
+  function clamp01(x){
+    x = Number(x);
+    if (Number.isNaN(x)) return 0;
+    return Math.max(0, Math.min(1, x));
+  }
+
+  function drawBars(canvasId, title, values){
+    const c = document.getElementById(canvasId);
+    if(!c) return;
+    const ctx = c.getContext("2d");
+    const W = c.width, H = c.height;
+
+    ctx.clearRect(0,0,W,H);
+
+    // title
+    ctx.fillStyle = "rgba(255,255,255,0.75)";
+    ctx.font = "14px system-ui";
+    ctx.fillText(title, 14, 22);
+
+    const keys = Object.keys(values || {});
+    if(keys.length === 0){
+      ctx.fillText("No data", 14, 48);
+      return;
+    }
+
+    const x0 = 18, x1 = W-14, y0 = 40, y1 = H-30;
+    const plotW = x1-x0, plotH = y1-y0;
+
+    // grid
+    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.lineWidth = 1;
+    for(let i=0;i<=4;i++){
+      const y = y0 + plotH*(i/4);
+      ctx.beginPath(); ctx.moveTo(x0,y); ctx.lineTo(x1,y); ctx.stroke();
+    }
+
+    const n = keys.length;
+    const gap = 10;
+    const barW = Math.max(18, (plotW - gap*(n-1)) / n);
+
+    // bars
+    for(let i=0;i<n;i++){
+      const k = keys[i];
+      const v = clamp01(values[k]);
+      const h = plotH * v;
+      const x = x0 + i*(barW + gap);
+      const y = y1 - h;
+
+      // bar
+      ctx.fillStyle = "rgba(124,92,255,0.85)";
+      ctx.fillRect(x, y, barW, h);
+
+      // value text
+      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.font = "12px system-ui";
+      ctx.fillText(v.toFixed(2), x, y-6);
+
+      // label
+      ctx.fillStyle = "rgba(255,255,255,0.65)";
+      ctx.font = "11px system-ui";
+      const label = k.replaceAll("_", " ");
+      ctx.save();
+      ctx.translate(x, H-10);
+      ctx.rotate(-0.25);
+      ctx.fillText(label, 0, 0);
+      ctx.restore();
+    }
+
+    // axis labels
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "11px system-ui";
+    ctx.fillText("1.0", 2, y0+4);
+    ctx.fillText("0.0", 2, y1);
+  }
+
+  (function(){
+    const stats = getStats();
+    drawBars("avgChart", "Average feature levels (0–1)", stats.averages || {});
+    drawBars("varChart", "Variability / instability (0–1)", stats.variability || {});
+  })();
+</script>
+
+
+</body>
+
+</html>
